@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конструктор и Редактор Промптов Чат-Бота</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Roboto+Mono:wght@400&display=swap');
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        .chat-message-user {
+            background-color: #d1e7dd; /* Light Green/Teal for user */
+            border-bottom-right-radius: 0;
+            margin-left: auto;
+        }
+        .chat-message-bot {
+            background-color: #f8d7da; /* Light Red/Rose for bot (Elena) */
+            border-bottom-left-radius: 0;
+        }
+        /* Custom scrollbar for chat history */
+        #chat-history::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-history::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        #chat-history::-webkit-scrollbar-track {
+            background-color: #f1f5f9;
+        }
+        #api-key-display, #persona-prompt-final {
+            font-family: 'Roboto Mono', monospace;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col xl:flex-row h-screen overflow-hidden">
+
+    <!-- Конструктор и Редакторы (Левая колонка) -->
+    <div class="xl:w-1/2 p-6 bg-white overflow-y-auto shadow-xl">
+        <h1 class="text-3xl font-bold text-red-600 mb-6 border-b pb-2">Управление Агентом "Елена"</h1>
+
+        <!-- Блок: API Ключ и Полный Промпт -->
+        <div class="mb-6 p-4 border border-red-200 rounded-xl bg-red-50">
+            <h2 class="text-xl font-semibold mb-3 text-red-700">1. Конфигурация API</h2>
+            
+            <label for="api-key-display" class="block text-sm font-medium text-gray-700 mb-1">
+                **Используемый API Ключ (ОБЯЗАТЕЛЬНО БЕЗ ОГРАНИЧЕНИЙ):**
+            </label>
+            <input type="text" id="api-key-display" class="w-full p-3 mb-4 border border-red-500 bg-red-100 rounded-lg shadow-sm text-sm font-mono" value="YOUR_API_KEY_HERE">
+            
+            <label for="persona-prompt-final" class="block text-sm font-medium text-gray-700 mb-1">
+                **Финальный Промпт (Отправляется в LLM, READ-ONLY):**
+            </label>
+            <textarea id="persona-prompt-final" rows="10" readonly class="w-full p-3 border border-red-300 rounded-lg shadow-sm text-xs bg-gray-50 cursor-not-allowed"></textarea>
+            <p class="mt-2 text-xs text-gray-500">Этот промпт собирается из **Главного Промпта** + **Вариативных Переменных**.</p>
+        </div>
+        
+        <!-- --- -->
+        <div class="mb-6 p-4 border border-gray-300 rounded-xl bg-gray-50">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700 border-b pb-2">2. Редактор Главного Промпта</h2>
+
+            <label for="main-editable-prompt" class="block text-sm font-medium text-gray-700 mb-1">
+                **Главный Промпт (редактируемая основа):**
+            </label>
+            <textarea id="main-editable-prompt" rows="15" class="w-full p-3 border border-red-300 rounded-lg shadow-inner focus:ring-red-500 focus:border-red-500 text-sm"></textarea>
+            <p class="mt-2 text-xs text-gray-500">Используйте плейсхолдеры, чтобы включить вариативные ответы из раздела 3.</p>
+
+            <div class="flex space-x-2 mt-3">
+                <button id="load-backup-button" class="flex-1 px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition duration-200 disabled:opacity-50">
+                    Загрузить Резервный Промпт
+                </button>
+            </div>
+        </div>
+        
+        <!-- AI Редактор -->
+        <div class="mb-6 p-4 border border-red-300 rounded-xl bg-red-50">
+            <h2 class="text-xl font-semibold mb-3 text-red-700 border-b pb-2">3. AI Редактор Промпта</h2>
+            
+            <label for="ai-editor-request" class="block text-sm font-medium text-gray-700 mb-1">
+                **Запрос на Редактирование (Например: Сделай тон более строгим):**
+            </label>
+            <div class="flex space-x-2">
+                <input type="text" id="ai-editor-request" placeholder="Введите, как изменить Главный Промпт"
+                       class="flex-grow p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500">
+                <button id="ai-editor-button" class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-200 disabled:opacity-50">
+                    <span id="ai-editor-text">Изменить Промпт</span>
+                    <svg id="ai-editor-spinner" class="animate-spin h-5 w-5 text-white ml-2 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div id="ai-editor-status" class="mt-3 p-3 text-sm rounded-lg bg-yellow-100 text-yellow-800 hidden"></div>
+        </div>
+
+        <!-- Резервный Промпт -->
+        <div class="mb-6 p-4 border border-gray-300 rounded-xl bg-gray-50">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700 border-b pb-2">4. Резервный Промпт</h2>
+            <label for="backup-prompt" class="block text-sm font-medium text-gray-700 mb-1">
+                **Сохраните здесь рабочую версию для быстрого восстановления:**
+            </label>
+            <textarea id="backup-prompt" rows="8" class="w-full p-3 border border-gray-300 rounded-lg shadow-inner focus:ring-red-500 focus:border-red-500 text-sm"></textarea>
+            <div class="flex space-x-2 mt-3">
+                <button id="save-backup-button" class="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-200">
+                    Сохранить как Резервный
+                </button>
+            </div>
+        </div>
+
+        <!-- Вариативные Переменные (Остались) -->
+        <div class="mb-6 space-y-4">
+            <h2 class="text-xl font-semibold text-red-700 border-b pb-2">5. Вариативные Переменные (Вставляются в Главный Промпт)</h2>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="greeting-text" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Приветствия:
+                </label>
+                <textarea id="greeting-text" rows="2" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Здравствуйте. Чем могу помочь с организацией вашего праздника?
+Приветствую! Я Елена, ваш помощник по праздничным услугам.
+Добрый день! Готова помочь вам с выбором оформления.</textarea>
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="no-own-balloons" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Ответов на "Свои шары":
+                </label>
+                <textarea id="no-own-balloons" rows="3" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">К сожалению, свои шары мы не надуваем. Только наши готовые композиции.
+Свои изделия мы не надуваем, можем предложить только варианты из нашего каталога.
+Мы работаем только с нашими сертифицированными шарами для гарантии качества.</textarea>
+            </div>
+            
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="delivery-confirm" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Подтверждения Доставки:
+                </label>
+                <textarea id="delivery-confirm" rows="2" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Хорошо, оформляю доставку к вашему времени.
+Отлично, фиксирую доставку. Уточним адрес и время.</textarea>
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="card-number" class="block text-sm font-medium text-gray-700 mb-1">
+                    Номер для оплаты (Плейсхолдер: [CARD_NUMBER]):
+                </label>
+                <input type="text" id="card-number" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm" value="+79610777403">
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="cash-compromise" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Компромисса при "Только наличные":
+                </label>
+                <textarea id="cash-compromise" rows="3" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Можно внести небольшую предоплату переводом, остальное при доставке курьером.
+Предлагаю внести минимальную предоплату переводом, а оставшуюся часть оплатить курьеру.</textarea>
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="order-fix" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Фиксации Согласия на Оплату:
+                </label>
+                <textarea id="order-fix" rows="2" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Хорошо, закрепляю заказ. Оплата согласована, верно?
+Отлично! Заказ зафиксирован. Мы согласовали способ оплаты?</textarea>
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="bargain-expensive" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Ответа на "Дорого/Сливаю":
+                </label>
+                <textarea id="bargain-expensive" rows="3" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Понимаю, есть вариант компактной связки по более доступной цене. Хотите пример?
+Могу предложить другой формат или меньшую связку, чтобы уложиться в бюджет, сохраняя качество.</textarea>
+            </div>
+
+            <div class="p-4 border border-red-200 rounded-xl">
+                <label for="bargain-hesitation" class="block text-sm font-medium text-gray-700 mb-1">
+                    Вариации Ответа на "Подумаю/Медлит":
+                </label>
+                <textarea id="bargain-hesitation" rows="3" class="w-full p-3 border border-red-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-sm">Можно закрепить заказ небольшой предоплатой, чтобы гарантировать доставку.
+Чтобы вы не теряли время, могу закрепить для вас текущий вариант с небольшим бонусом (+3 шара).</textarea>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Симулятор Чата (Правая колонка) -->
+    <div class="xl:w-1/2 flex flex-col bg-gray-100 p-4 relative">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">6. Симулятор Диалога</h2>
+
+        <!-- История Чата -->
+        <div id="chat-history" class="flex-grow overflow-y-auto mb-4 p-3 space-y-4 bg-white rounded-xl shadow-inner">
+            <div class="text-center text-gray-500 italic p-4">
+                Начните чат, чтобы увидеть, как Елена реагирует на ваш промпт.
+            </div>
+        </div>
+
+        <!-- Поле Ввода и Статус -->
+        <div class="flex flex-col">
+            <div id="status-message" class="text-sm text-center text-red-600 mb-2 invisible">
+                Елена печатает...
+            </div>
+            <form id="chat-form" class="flex space-x-3">
+                <input type="text" id="user-input" placeholder="Введите сообщение клиенту (напр., Привет, сколько стоит ведущий?)"
+                       class="flex-grow p-4 border border-gray-300 rounded-xl focus:ring-red-500 focus:border-red-500 shadow-md">
+                <button type="submit" id="send-button"
+                        class="px-6 py-4 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition duration-200 shadow-md flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span id="send-text">Отправить</span>
+                    <svg id="spinner" class="animate-spin h-5 w-5 text-white ml-2 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        // Конфигурация API
+        const MODEL = "gemini-2.5-flash-preview-05-20";
+        const defaultApiKey = "YOUR_API_KEY_HERE";
+
+        // --- Элементы DOM ---
+        const apiKeyDisplayEl = document.getElementById('api-key-display');
+        const mainEditablePromptEl = document.getElementById('main-editable-prompt');
+        const backupPromptEl = document.getElementById('backup-prompt');
+        const personaPromptFinalEl = document.getElementById('persona-prompt-final');
+
+        const loadBackupButton = document.getElementById('load-backup-button');
+        const saveBackupButton = document.getElementById('save-backup-button');
+        
+        const aiEditorRequestEl = document.getElementById('ai-editor-request');
+        const aiEditorButton = document.getElementById('ai-editor-button');
+        const aiEditorStatusEl = document.getElementById('ai-editor-status');
+
+        const chatHistoryEl = document.getElementById('chat-history');
+        const chatFormEl = document.getElementById('chat-form');
+        const userInputEl = document.getElementById('user-input');
+        const sendButtonEl = document.getElementById('send-button');
+        const statusMessageEl = document.getElementById('status-message');
+
+        // Вариативные поля
+        const greetingTextEl = document.getElementById('greeting-text');
+        const cardNumberEl = document.getElementById('card-number');
+        const noOwnBalloonsEl = document.getElementById('no-own-balloons');
+        const deliveryConfirmEl = document.getElementById('delivery-confirm');
+        const cashCompromiseEl = document.getElementById('cash-compromise');
+        const orderFixEl = document.getElementById('order-fix');
+        const bargainExpensiveEl = document.getElementById('bargain-expensive');
+        const bargainHesitationEl = document.getElementById('bargain-hesitation');
+
+        // История диалога для передачи в LLM
+        let chatHistory = [];
+        let isFirstMessage = true;
+
+        // Плейсхолдеры для динамической замены
+        const PLACEHOLDERS = {
+            GREETING_OPTIONS: '[GREETING_OPTIONS]',
+            CARD_NUMBER: '[CARD_NUMBER]',
+            NO_OWN_BALLOONS_OPTIONS: '[NO_OWN_BALLOONS_OPTIONS]',
+            DELIVERY_CONFIRM_OPTIONS: '[DELIVERY_CONFIRM_OPTIONS]',
+            CASH_COMPROMISE_OPTIONS: '[CASH_COMPROMISE_OPTIONS]',
+            ORDER_FIX_OPTIONS: '[ORDER_FIX_OPTIONS]',
+            BARGAIN_EXPENSIVE_OPTIONS: '[BARGAIN_EXPENSIVE_OPTIONS]',
+            BARGAIN_HESITATION_OPTIONS: '[BARGAIN_HESITATION_OPTIONS]'
+        };
+        
+        // Стартовый Главный Промпт для инициализации
+        const INITIAL_MAIN_PROMPT_TEMPLATE = `Ты — Елена, уверенный и дружелюбный менеджер по праздничным услугам.
+
+Все цены и список доступных услуг бот берёт только из подключённого Excel-файла. (ВНИМАНИЕ: Для симуляции, используй реалистичные, но простые примеры цен. Например: "Латексный шар — от 150₽, Фольгированный — от 250₽", "Ведущий/Аниматор — от 5000₽ за час").
+Excel содержит категории: «Праздники» (Шары, Композиции), «Ведущие/Аниматоры», «Тимбилдинги». Твоя задача — помогать клиенту выбирать и мягко доводить до заказа.
+
+ПРАВИЛА ДИАЛОГА:
+1. Ответ на запрос клиента: Реагируй по сути сразу. Короткий ответ — до 90 символов. Информация подаётся постепенно.
+2. Свои шары: Своё изделие клиенту не надуваем. Если клиент спрашивает про свои шары, отвечай **одним из следующих вариантов**: [NO_OWN_BALLOONS_OPTIONS]
+3. Доставка: По тарифу Яндекс Такси, без наценки. После согласия уточняй адрес и время. В ответ используй **один из следующих вариантов**: [DELIVERY_CONFIRM_OPTIONS]
+4. Оплата: Всегда согласуется до выезда курьера. Для перевода на карту используй номер: [CARD_NUMBER]. Если клиент говорит «только наличные», предлагай компромисс, используя **один из следующих вариантов**: [CASH_COMPROMISE_OPTIONS]. Мягко фиксируй решение, используя **один из следующих вариантов**: [ORDER_FIX_OPTIONS]
+5. Навык умного торга: Если клиент говорит «дорого», предлагай альтернативу. Отвечай **одним из следующих вариантов**: [BARGAIN_EXPENSIVE_OPTIONS]. Если клиент медлит, предлагай забронировать небольшой шаг. Отвечай **одним из следующих вариантов**: [BARGAIN_HESITATION_OPTIONS]
+6. Принципы поведения: Всегда веди к следующему шагу, не спорь. Показывай ценность. Заканчивай диалог конкретикой.
+`;
+
+
+        // Вспомогательная функция для получения объединенных опций быстрого ответа
+        function getQuickResponseOptions(element) {
+            // Разделяем по переносу строки, очищаем пустые строки, обрезаем пробелы и объединяем через " / ИЛИ / "
+            return element.value.trim().split('\n').map(line => line.trim()).filter(line => line.length > 0).join(' / ИЛИ / ');
+        }
+
+        // Функция для создания HTML-элемента сообщения
+        function createMessageElement(text, sender) {
+            const container = document.createElement('div');
+            container.classList.add('flex', 'max-w-[85%]');
+
+            const message = document.createElement('div');
+            message.classList.add('px-4', 'py-3', 'rounded-xl', 'shadow-md', 'whitespace-pre-wrap');
+
+            // Используем innerHTML для обработки Markdown (жирный текст, курсив)
+            const formattedText = text.trim().replace(/\n/g, '<br>');
+            message.innerHTML = formattedText;
+
+            if (sender === 'user') {
+                container.classList.add('ml-auto', 'justify-end');
+                message.classList.add('chat-message-user', 'text-gray-800');
+            } else {
+                container.classList.add('mr-auto');
+                message.classList.add('chat-message-bot', 'text-gray-900');
+            }
+
+            container.appendChild(message);
+            return container;
+        }
+
+        // Обновление истории чата
+        function appendMessage(text, sender) {
+            if (chatHistoryEl.children.length === 1 && chatHistoryEl.children[0].textContent.includes('Начните чат')) {
+                 chatHistoryEl.innerHTML = '';
+            }
+
+            const messageEl = createMessageElement(text, sender);
+            chatHistoryEl.appendChild(messageEl);
+            chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+        }
+
+        // Блокировка/разблокировка ввода для чата
+        function toggleLoadingChat(isLoading) {
+            userInputEl.disabled = isLoading;
+            sendButtonEl.disabled = isLoading;
+            statusMessageEl.classList.toggle('invisible', !isLoading);
+            document.getElementById('send-text').textContent = isLoading ? 'Отправка...' : 'Отправить';
+            document.getElementById('spinner').classList.toggle('hidden', !isLoading);
+        }
+
+        // Блокировка/разблокировка для AI Редактора
+        function toggleLoadingAI(isLoading) {
+            aiEditorRequestEl.disabled = isLoading;
+            aiEditorButton.disabled = isLoading;
+            loadBackupButton.disabled = isLoading;
+            saveBackupButton.disabled = isLoading;
+            document.getElementById('ai-editor-text').textContent = isLoading ? 'Редактирую...' : 'Изменить Промпт';
+            document.getElementById('ai-editor-spinner').classList.toggle('hidden', !isLoading);
+            aiEditorStatusEl.classList.add('hidden'); // Скрываем статус при начале загрузки
+        }
+
+        // --- Функции Промпт-Инжиниринга ---
+
+        // 1. Построение финального промпта для LLM
+        function getFinalLLMPrompt() {
+            let instruction = mainEditablePromptEl.value;
+
+            // 1. Заменяем все вариативные поля
+            instruction = instruction.replace(PLACEHOLDERS.NO_OWN_BALLOONS_OPTIONS, getQuickResponseOptions(noOwnBalloonsEl));
+            instruction = instruction.replace(PLACEHOLDERS.DELIVERY_CONFIRM_OPTIONS, getQuickResponseOptions(deliveryConfirmEl));
+            instruction = instruction.replace(PLACEHOLDERS.CASH_COMPROMISE_OPTIONS, getQuickResponseOptions(cashCompromiseEl));
+            instruction = instruction.replace(PLACEHOLDERS.ORDER_FIX_OPTIONS, getQuickResponseOptions(orderFixEl));
+            instruction = instruction.replace(PLACEHOLDERS.BARGAIN_EXPENSIVE_OPTIONS, getQuickResponseOptions(bargainExpensiveEl));
+            instruction = instruction.replace(PLACEHOLDERS.BARGAIN_HESITATION_OPTIONS, getQuickResponseOptions(bargainHesitationEl));
+            instruction = instruction.replace(PLACEHOLDERS.CARD_NUMBER, cardNumberEl.value);
+
+            // 2. Обработка Приветствия (добавляется только в первое сообщение)
+            if (isFirstMessage) {
+                const greetingOptions = getQuickResponseOptions(greetingTextEl);
+                const greetingRule = `\n\n**ПРАВИЛО ПРИВЕТСТВИЯ (Срабатывает только 1 раз):** Распознавай стандартные приветствия. Отвечай только один раз в начале диалога приветствием, используя один из следующих вариантов: "${greetingOptions}". После этого не повторяй приветствие. Жди инициативу клиента.`;
+                instruction += greetingRule;
+            } else {
+                const nonRepeatRule = "\n\n**ВАЖНО:** Ты уже поприветствовал клиента. Не повторяй приветствие и не начинай с лишних фраз.";
+                instruction += nonRepeatRule;
+            }
+
+            // Обновляем отображение финального промпта
+            personaPromptFinalEl.value = instruction;
+            return instruction;
+        }
+        
+        // 2. Универсальная функция запроса с повторами
+        async function fetchWithRetry(url, payload, maxRetries = 3, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        return response.json();
+                    } else if (response.status === 429 && i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay * (2 ** i)));
+                    } else {
+                        const errorText = await response.text();
+                        throw new Error(`API Error: Status ${response.status} - ${response.statusText}. Response: ${errorText}`);
+                    }
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, delay * (2 ** i)));
+                }
+            }
+        }
+        
+        // 3. Функция для AI редактирования промпта
+        async function editPromptWithAI(userRequest) {
+            toggleLoadingAI(true);
+            const currentApiKey = apiKeyDisplayEl.value;
+
+            if (!currentApiKey || currentApiKey === defaultApiKey) {
+                aiEditorStatusEl.textContent = "❌ Ошибка: Пожалуйста, введите действующий API ключ для использования AI-редактора.";
+                aiEditorStatusEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
+                aiEditorStatusEl.classList.add('bg-red-100', 'text-red-800');
+                toggleLoadingAI(false);
+                return;
+            }
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${currentApiKey}`;
+            const currentPrompt = mainEditablePromptEl.value;
+            
+            const editorSystemPrompt = `Ты — LLM-редактор, эксперт по промпт-инжинирингу. Твоя единственная задача — обновить предоставленный ГЛАВНЫЙ ПРОМПТ в соответствии с ЗАПРОСОМ ПОЛЬЗОВАТЕЛЯ. Ты должен вернуть ТОЛЬКО JSON-объект, используя следующую схему.
+                1. updated_prompt (string): Полный, измененный текст промпта. Сохрани все служебные плейсхолдеры в формате [ПЛЕЙСХОЛДЕР] и не добавляй лишних символов.
+                2. explanation (string): Краткое (1-2 предложения) пояснение изменений на русском языке.
+                Не добавляй никаких дополнительных комментариев вне JSON.`;
+            
+            const editorUserQuery = `ГЛАВНЫЙ ПРОМПТ:
+                ---
+                ${currentPrompt}
+                ---
+                ЗАПРОС ПОЛЬЗОВАТЕЛЯ: ${userRequest}`;
+
+            try {
+                const payload = {
+                    contents: [{ parts: [{ text: editorUserQuery }] }],
+                    systemInstruction: { parts: [{ text: editorSystemPrompt }] },
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "updated_prompt": { "type": "STRING", "description": "Полностью переработанный главный промпт." },
+                                "explanation": { "type": "STRING", "description": "Краткое пояснение внесенных изменений." }
+                            },
+                            "propertyOrdering": ["updated_prompt", "explanation"]
+                        }
+                    }
+                };
+
+                const result = await fetchWithRetry(apiUrl, payload);
+                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (!jsonText) {
+                     throw new Error("API вернуло пустой или неформатированный ответ.");
+                }
+
+                const parsedJson = JSON.parse(jsonText);
+                
+                // Обновляем главный промпт
+                mainEditablePromptEl.value = parsedJson.updated_prompt;
+                // Обновляем финальный промпт
+                getFinalLLMPrompt(); 
+                
+                // Выводим статус
+                aiEditorStatusEl.textContent = `✅ Успешно! ${parsedJson.explanation}`;
+                aiEditorStatusEl.classList.remove('hidden', 'bg-red-100', 'text-red-800');
+                aiEditorStatusEl.classList.add('bg-green-100', 'text-green-800');
+                aiEditorRequestEl.value = '';
+
+            } catch (error) {
+                console.error("Error in AI Editor:", error);
+                aiEditorStatusEl.textContent = `❌ Ошибка AI Редактора: Не удалось изменить промпт. Проверьте консоль для деталей или попробуйте изменить запрос.`;
+                aiEditorStatusEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
+                aiEditorStatusEl.classList.add('bg-red-100', 'text-red-800');
+            } finally {
+                toggleLoadingAI(false);
+            }
+        }
+
+
+        // 4. Главная функция отправки сообщения в чат
+        async function sendChatMessage(userQuery) {
+            toggleLoadingChat(true);
+            const userMessage = userQuery.trim();
+
+            if (!userMessage) {
+                toggleLoadingChat(false);
+                return;
+            }
+
+            const currentApiKey = apiKeyDisplayEl.value;
+            if (!currentApiKey || currentApiKey === defaultApiKey) {
+                appendMessage("❌ Ошибка: Пожалуйста, замените заглушку API ключа на ваш фактический, действующий ключ от Google AI Studio.", 'bot');
+                toggleLoadingChat(false);
+                return;
+            }
+            
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${currentApiKey}`;
+
+            appendMessage(userMessage, 'user');
+            userInputEl.value = '';
+
+            chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
+
+            try {
+                const systemInstruction = getFinalLLMPrompt();
+
+                const payload = {
+                    contents: chatHistory,
+                    systemInstruction: {
+                        parts: [{ text: systemInstruction }]
+                    },
+                    config: { temperature: 0.8 }
+                };
+
+                const result = await fetchWithRetry(apiUrl, payload);
+
+                const candidate = result.candidates?.[0];
+                let botResponseText = 'Извините, произошла ошибка или ответ не был сгенерирован. Возможно, причина в неверном API-ключе.';
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    botResponseText = candidate.content.parts[0].text;
+                }
+
+                appendMessage(botResponseText, 'bot');
+
+                chatHistory.push({ role: "model", parts: [{ text: botResponseText }] });
+
+                if (isFirstMessage) {
+                    isFirstMessage = false;
+                    getFinalLLMPrompt(); // Перестраиваем промпт, чтобы убрать правило приветствия
+                }
+
+            } catch (error) {
+                console.error("Error communicating with Gemini API:", error);
+                appendMessage("❌ Критическая ошибка соединения с API. Проверьте ключ, доменные ограничения или настройки API в Google AI Studio. (Убедитесь, что ключ не имеет ограничений!)", 'bot');
+            } finally {
+                toggleLoadingChat(false);
+            }
+        }
+
+        // --- Обработчики событий ---
+
+        // Обработчик формы чата
+        chatFormEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            sendChatMessage(userInputEl.value);
+            // Сброс истории чата при новом диалоге, если пользователь не использовал AI-редактор
+            if (!isFirstMessage) {
+                chatHistory = [];
+                isFirstMessage = true;
+            }
+        });
+        
+        // Обработчик для AI Редактора
+        aiEditorButton.addEventListener('click', () => {
+            const request = aiEditorRequestEl.value.trim();
+            if (request) {
+                editPromptWithAI(request);
+            } else {
+                aiEditorStatusEl.textContent = 'Введите запрос на редактирование!';
+                aiEditorStatusEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
+                aiEditorStatusEl.classList.add('bg-yellow-100', 'text-yellow-800');
+            }
+        });
+
+        // Обработчики для Резервного Промпта
+        saveBackupButton.addEventListener('click', () => {
+            backupPromptEl.value = mainEditablePromptEl.value;
+            aiEditorStatusEl.textContent = '✅ Главный Промпт успешно сохранен в резервной копии.';
+            aiEditorStatusEl.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-yellow-100', 'text-yellow-800');
+            aiEditorStatusEl.classList.add('bg-green-100', 'text-green-800');
+        });
+        
+        loadBackupButton.addEventListener('click', () => {
+            if (backupPromptEl.value.trim()) {
+                mainEditablePromptEl.value = backupPromptEl.value;
+                getFinalLLMPrompt(); // Обновить финальный промпт
+                aiEditorStatusEl.textContent = '✅ Резервный Промпт успешно загружен в Главный Редактор.';
+                aiEditorStatusEl.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-yellow-100', 'text-yellow-800');
+                aiEditorStatusEl.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                aiEditorStatusEl.textContent = 'Резервная копия пуста. Сначала сохраните Главный Промпт.';
+                aiEditorStatusEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
+                aiEditorStatusEl.classList.add('bg-yellow-100', 'text-yellow-800');
+            }
+        });
+
+
+        // Обновление финального промпта при изменении любых полей
+        [mainEditablePromptEl, cardNumberEl, greetingTextEl, noOwnBalloonsEl, deliveryConfirmEl, cashCompromiseEl, orderFixEl, bargainExpensiveEl, bargainHesitationEl].forEach(el => {
+            el.addEventListener('input', getFinalLLMPrompt);
+        });
+
+        // Инициализация при загрузке
+        window.onload = () => {
+             // 1. Инициализируем отображение ключа
+             apiKeyDisplayEl.value = defaultApiKey;
+             // 2. Устанавливаем стартовый промпт
+             mainEditablePromptEl.value = INITIAL_MAIN_PROMPT_TEMPLATE;
+             // 3. Первоначальное построение финального промпта
+             getFinalLLMPrompt();
+             userInputEl.focus();
+        };
+
+    </script>
+</body>
+</html>
